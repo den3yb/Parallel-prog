@@ -1,75 +1,41 @@
 import matplotlib.pyplot as plt
+import os
+import re
 
-def average_plot_from_files(filenames, label):
-    """
-    Строит график по нескольким файлам со статистикой, усредняя значения
-    """
-    all_x = []
-    all_y = []
+# Проверяем, существует ли папка
+if not os.path.exists('matrix_out'):
+    print("Ошибка: папка 'matrix_out' не найдена!")
+    exit()
 
-    for filename in filenames:
-        x = []
-        y = []
-        with open(filename, 'r') as file:
-            for line in file:
-                line = line.strip()
-                if line:
-                    values = line.split()
-                    x_value = float(values[0])
-                    y_value = float(values[1])
-                    x.append(x_value)
-                    y.append(y_value)
-        all_x.append(x)
-        all_y.append(y)
+files = [
+    'matrix_out/matrix_statistic1.txt',
+    'matrix_out/matrix_statistic2.txt',
+    'matrix_out/matrix_statistic4.txt', 
+    'matrix_out/matrix_statistic8.txt'   
+]
 
-    unique_x = sorted(list(set().union(*all_x)))
+plt.figure()
 
-    average_y = []
-    for x_val in unique_x:
-        y_values_for_x = []
-        for i in range(len(filenames)):
-            if len(all_x[i]) == 0:
-                continue
-            index = all_x[i].index(x_val)
-            y_values_for_x.append(all_y[i][index])
+for file in files:
+    x, y = [], []
+    try:
+        # Извлекаем число потоков из имени файла
+        thread_count = re.search(r'statistic(\d+)', file).group(1)
+        
+        with open(file) as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 2:  # Проверяем, что в строке 2 элемента
+                    x.append(int(parts[0]))
+                    y.append(float(parts[1]))
+        plt.plot(x, y, 'o-', label=thread_count)
+    except FileNotFoundError:
+        print(f"Файл {file} не найден, пропускаем")
+    except ValueError as e:
+        print(f"Ошибка в данных файла {file}: {e}")
 
-
-        if y_values_for_x:
-            average_y.append(sum(y_values_for_x) / len(y_values_for_x))
-        else:
-            average_y.append(None)
-
-    
-    x_filtered = []
-    y_filtered = []
-    for i in range(len(unique_x)):
-        if average_y[i] is not None:
-            x_filtered.append(unique_x[i])
-            y_filtered.append(average_y[i])
-
-    return x_filtered, y_filtered, label
-
-if __name__ == '__main__':
-    plt.figure(figsize=(10, 6)) 
-
-    # Данные для 8 потоков
-    filenames_8 = [f'Parallel-prog\\matrix_out\\matrix_statistic8{i}.txt' for i in range(1, 6)]
-    x_8, y_8, label_8 = average_plot_from_files(filenames_8, '8 потоков')
-    plt.plot(x_8, y_8, marker='o', label=label_8)
-
-    # Данные для 4 потоков
-    filenames_4 = [f'Parallel-prog\\matrix_out\\matrix_statistic4{i}.txt' for i in range(1, 6)]
-    x_4, y_4, label_4 = average_plot_from_files(filenames_4, '4 потока')
-    plt.plot(x_4, y_4, marker='o', label=label_4)
-
-    # Данные для 2 потоков
-    filenames_2 = [f'Parallel-prog\\matrix_out\\matrix_statistic2{i}.txt' for i in range(1, 6)]
-    x_2, y_2, label_2 = average_plot_from_files(filenames_2, '2 потока')
-    plt.plot(x_2, y_2, marker='o', label=label_2)
-
-    plt.xlabel('Количество элементов матрицы')
-    plt.ylabel('Среднее время выполнения (секунды)')
-    plt.title('Усредненное время выполнения умножения матриц для разного количества потоков')
-    plt.grid(True)
-    plt.legend()
-    plt.show()
+plt.xlabel('Размер матрицы')
+plt.ylabel('Время (сек)')
+plt.grid(True)
+plt.legend(title='Потоки')
+plt.show()

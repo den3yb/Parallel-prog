@@ -3,8 +3,6 @@
 #include <fstream>
 #include <ctime>
 #include <mpi.h>
-#include <omp.h>
-#include <windows.h>
 
 using namespace std;
 
@@ -16,219 +14,147 @@ namespace constants {
 }
 
 namespace algoritms {
-
     bool createRandomMatrixFile(int row, int colum, string file_name) {
         srand(time(0));
         ofstream file(file_name);
         for (int i = 0; i < row; ++i) {
-            for (int j = 0; j < colum; ++j) { file << rand() << " "; }
+            for (int j = 0; j < colum; ++j) {
+                file << rand() % 100 << " ";
+            }
             file << endl;
         }
         file.close();
         return true;
     }
 
-    std::vector<std::vector<int>> readMatrixFromFile(int row, int colum, string file_name) {
-        std::vector<std::vector<int>> matrix(row, std::vector<int>(colum));
-        std::ifstream file(file_name);
-        int number;
-
-        for (int i = 0; i < row; ++i) {
-            for (int j = 0; j < colum; ++j) {
-                if (file >> number) {
-                    matrix[i][j] = number;
-                }
-                else {
-                    matrix[i][j] = 0;
-                }
-            }
-        }
-
+    vector<vector<int>> readMatrixFromFile(int row, int colum, string file_name) {
+        vector<vector<int>> matrix(row, vector<int>(colum));
+        ifstream file(file_name);
+        for (int i = 0; i < row; ++i)
+            for (int j = 0; j < colum; ++j)
+                file >> matrix[i][j];
         file.close();
         return matrix;
     }
 
-    vector<vector<int>> multiplySaveMatrixes(vector<vector<int>>& matrix1, vector<vector<int>>& matrix2) {
-        int rank, size;
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-        MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-        if (matrix1[0].size() != matrix2.size()) {
-            if (rank == 0) cerr << "Matrices cannot be multiplied due to incompatible dimensions." << endl;
-            return {};
+    void writeMatrixToFile(const vector<vector<int>>& matrix, string filename) {
+        ofstream file(filename);
+        for (auto& row : matrix) {
+            for (auto& val : row)
+                file << val << " ";
+            file << "\n";
         }
-
-        int rows = matrix1.size();
-        int cols = matrix2[0].size();
-        int common_dim = matrix1[0].size();
-
-        vector<vector<int>> result(rows, vector<int>(cols, 0));
-
-        int chunk_size = rows / size;
-        int start_row = rank * chunk_size;
-        int end_row = (rank == size - 1) ? rows : start_row + chunk_size;
-
-        if (rank == 0) {
-            cout << "Starting matrix multiplication..." << endl;
-        }
-
-        // Local multiplication
-        for (int i = start_row; i < end_row; ++i) {
-            for (int j = 0; j < cols; ++j) {
-                int sum = 0;
-                for (int k = 0; k < common_dim; ++k) {
-                    sum += matrix1[i][k] * matrix2[k][j];
-                }
-                result[i][j] = sum;
-            }
-        }
-
-        // Gathering results at process 0
-        if (rank == 0) {
-            MPI_Status status;
-            for (int p = 1; p < size; ++p) {
-                int p_start = p * chunk_size;
-                int p_end = (p == size - 1) ? rows : p_start + chunk_size;
-                for (int i = p_start; i < p_end; ++i) {
-                    MPI_Recv(result[i].data(), cols, MPI_INT, p, 0, MPI_COMM_WORLD, &status);
-                }
-            }
-            cout << "Multiplication complete. Saving result..." << endl;
-        }
-        else {
-            for (int i = start_row; i < end_row; ++i) {
-                MPI_Send(result[i].data(), cols, MPI_INT, 0, 0, MPI_COMM_WORLD);
-            }
-        }
-
-        // Save result from process 0
-        if (rank == 0) {
-            ofstream file(constants::result_file);
-            for (int i = 0; i < rows; ++i) {
-                for (int j = 0; j < cols; ++j) {
-                    file << result[i][j] << " ";
-                }
-                file << endl;
-            }
-            file.close();
-            cout << "Result saved to file." << endl;
-        }
-
-        return result;
+        file.close();
     }
-
-    void printMatrix(const vector<vector<int>>& matrix) {
-        for (const auto& row : matrix) {
-            for (int val : row) {
-                cout << val << " ";
-            }
-            cout << endl;
-        }
-    }
-
 }
 
-using namespace algoritms;
-
-void oneCycle(int row_1, int colum_1, int row_2, int colum_2) {
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-    vector<vector<int>> matrix_1, matrix_2;
-
-    if (rank == 0) {
-        cout << "Generating random matrices..." << endl;
-        createRandomMatrixFile(row_1, colum_1, constants::first_file);
-        matrix_1 = readMatrixFromFile(row_1, colum_1, constants::first_file);
-
-        createRandomMatrixFile(row_2, colum_2, constants::second_file);
-        matrix_2 = readMatrixFromFile(row_2, colum_2, constants::second_file);
-        cout << "Matrices loaded." << endl;
-    }
-
-    // Broadcast dimensions
-    int sizes[4] = { row_1, colum_1, row_2, colum_2 };
-    MPI_Bcast(sizes, 4, MPI_INT, 0, MPI_COMM_WORLD);
-
-    row_1 = sizes[0]; colum_1 = sizes[1];
-    row_2 = sizes[2]; colum_2 = sizes[3];
-
-    if (colum_1 != row_2) {
-        if (rank == 0) cerr << "Error: Incompatible matrix sizes" << endl;
-        return;
-    }
-
-    // Broadcast matrix 1
-    if (rank != 0) matrix_1.resize(row_1, vector<int>(colum_1));
-    for (int i = 0; i < row_1; ++i) {
-        MPI_Bcast(matrix_1[i].data(), colum_1, MPI_INT, 0, MPI_COMM_WORLD);
-    }
-
-    // Broadcast matrix 2
-    if (rank != 0) matrix_2.resize(row_2, vector<int>(colum_2));
-    for (int i = 0; i < row_2; ++i) {
-        MPI_Bcast(matrix_2[i].data(), colum_2, MPI_INT, 0, MPI_COMM_WORLD);
-    }
-
-    multiplySaveMatrixes(matrix_1, matrix_2);
-}
-
-void getMatrixStatistic(vector<int> cycles) {
+void oneCycleMPI(int rowA, int colA, int rowB, int colB) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    ofstream file;
-    if (rank == 0) {
-        file.open(constants::statistic_file);
-        cout << "Starting statistics collection..." << endl;
-    }
-
-    for (size_t i = 0; i < cycles.size(); ++i) {
-        if (i % size != rank) continue;
-
-        int current = cycles[i];
-        cout << "Process " << rank << ": processing matrix size " << current << endl;
-
-        clock_t start = clock();
-        oneCycle(current, current, current, current);
-        clock_t end = clock();
-
-        double duration = double(end - start) / CLOCKS_PER_SEC;
-
-        if (rank != 0) {
-            MPI_Send(&duration, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
-        }
-        else {
-            file << current << " " << duration << endl;
-            for (int p = 1; p < size; ++p) {
-                if (i + p >= cycles.size()) break;
-                double recv_dur;
-                MPI_Recv(&recv_dur, 1, MPI_DOUBLE, p, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                file << cycles[i + p] << " " << recv_dur << endl;
-            }
-        }
-    }
+    vector<vector<int>> A, B;
+    vector<int> flatA, flatB, flatResult;
+    int rowsPerProc, extraRows;
 
     if (rank == 0) {
+        algoritms::createRandomMatrixFile(rowA, colA, constants::first_file);
+        algoritms::createRandomMatrixFile(rowB, colB, constants::second_file);
+        A = algoritms::readMatrixFromFile(rowA, colA, constants::first_file);
+        B = algoritms::readMatrixFromFile(rowB, colB, constants::second_file);
+
+        flatB.resize(rowB * colB);
+        for (int i = 0; i < rowB; ++i)
+            for (int j = 0; j < colB; ++j)
+                flatB[i * colB + j] = B[i][j];
+    }
+
+    MPI_Bcast(&colA, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&colB, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&rowB, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    flatB.resize(rowB * colB);
+    MPI_Bcast(flatB.data(), rowB * colB, MPI_INT, 0, MPI_COMM_WORLD);
+
+    rowsPerProc = rowA / size;
+    extraRows = rowA % size;
+    vector<int> sendCounts(size), displs(size);
+
+    int offset = 0;
+    for (int i = 0; i < size; ++i) {
+        sendCounts[i] = (i < extraRows ? rowsPerProc + 1 : rowsPerProc) * colA;
+        displs[i] = offset;
+        offset += sendCounts[i];
+    }
+
+    vector<int> localA(sendCounts[rank]);
+    if (rank == 0) {
+        flatA.resize(rowA * colA);
+        for (int i = 0; i < rowA; ++i)
+            for (int j = 0; j < colA; ++j)
+                flatA[i * colA + j] = A[i][j];
+    }
+
+    MPI_Scatterv(flatA.data(), sendCounts.data(), displs.data(), MPI_INT,
+        localA.data(), sendCounts[rank], MPI_INT, 0, MPI_COMM_WORLD);
+
+    int localRows = sendCounts[rank] / colA;
+    vector<int> localResult(localRows * colB);
+
+    for (int i = 0; i < localRows; ++i)
+        for (int j = 0; j < colB; ++j)
+            for (int k = 0; k < colA; ++k)
+                localResult[i * colB + j] += localA[i * colA + k] * flatB[k * colB + j];
+
+    vector<int> recvCounts(size), recvDispls(size);
+    for (int i = 0; i < size; ++i) {
+        int rows = sendCounts[i] / colA;
+        recvCounts[i] = rows * colB;
+        recvDispls[i] = (i == 0) ? 0 : recvDispls[i - 1] + recvCounts[i - 1];
+    }
+
+    if (rank == 0) flatResult.resize(rowA * colB);
+
+    MPI_Gatherv(localResult.data(), recvCounts[rank], MPI_INT,
+        flatResult.data(), recvCounts.data(), recvDispls.data(), MPI_INT,
+        0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        vector<vector<int>> result(rowA, vector<int>(colB));
+        for (int i = 0; i < rowA; ++i)
+            for (int j = 0; j < colB; ++j)
+                result[i][j] = flatResult[i * colB + j];
+
+        algoritms::writeMatrixToFile(result, constants::result_file);
+    }
+}
+
+void getMatrixStatistic(vector<int> cycles) {
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    if (rank == 0) {
+        ofstream file(constants::statistic_file);
+        for (int size : cycles) {
+            double start = MPI_Wtime();
+            oneCycleMPI(size, size, size, size);
+            double end = MPI_Wtime();
+            file << size << " " << (end - start) << endl;
+        }
         file.close();
-        cout << "Statistics saved." << endl;
+    }
+    else {
+        for (int size : cycles)
+            oneCycleMPI(size, size, size, size);
     }
 }
 
 int main(int argc, char** argv) {
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
-    setlocale(LC_ALL, "Russian"); // Optional, can remove or change to "en_US.utf8" if needed
     MPI_Init(&argc, &argv);
 
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
     vector<int> count = { 2, 5, 10, 25, 50, 100, 150, 250, 350, 500, 750, 1000 };
-
     getMatrixStatistic(count);
-
+    oneCycleMPI(2, 3, 3, 3);
 
     MPI_Finalize();
     return 0;
